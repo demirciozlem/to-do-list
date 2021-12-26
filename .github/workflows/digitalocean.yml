@@ -1,0 +1,74 @@
+# This is a basic workflow to help you get started with Actions
+
+name: CI
+
+# Controls when the workflow will run
+on:
+  # Triggers the workflow on push or pull request events but only for the main branch
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+  # Allows you to run this workflow manually from the Actions tab
+  workflow_dispatch:
+
+# Environment variables available to all jobs and steps in this workflow
+env:
+  ANGULAR_IMAGE_NAME: to-do-list-client
+  ANGULAR_CONTAINER_NAME: to-do-list-client
+  ANGULAR_DEPLOYMENT_NAME: to-do-list-client
+
+# A workflow run is made up of one or more jobs that can run sequentially or in parallel
+jobs:
+  # This workflow contains a single job called "build"
+  build:
+    # The type of runner that the job will run on
+    name: Build, push, and deploy
+    runs-on: ubuntu-latest
+
+    # Steps represent a sequence of tasks that will be executed as part of the job
+    steps:
+      # Checks-out your repository under $GITHUB_WORKSPACE, so your job can access it
+      - name: Checkout main
+        uses: actions/checkout@v2
+        
+      - name: Login to Docker Hub
+        uses: docker/login-action@v2
+        with:
+          username: ${{ secrets.DOCKER_HUB_USERNAME }}
+          password: ${{ secrets.DOCKER_HUB_ACCESS_TOKEN }}
+          
+      - name: Build and push Angular Image
+        id: angular_docker_build
+        uses: docker/build-push-action@v3
+        with:
+          context: ./to-do-list
+          file: ./Dockerfile
+          push: true
+          tags: ${{ secrets.DOCKER_HUB_USERNAME }}/${{ env.ANGULAR_IMAGE_NAME }}:${{ github.sha }}
+ 
+      - name: Install doctl
+        uses: digitalocean/action-doctl@v3
+        with:
+          token: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
+ 
+      - name: Save DigitalOcean kubeconfig with short-lived credentials
+        run: doctl kubernetes cluster kubeconfig save --expiry-seconds 600 k8s-1-21-5-do-0-fra1-1640552296223
+
+      # Deploy Angular & Spring Boot Docker image to the DigitalOcean kubernetes cluster
+      - name: Deploy
+        run: |-
+          kubectl set image deployment/${{env.ANGULAR_DEPLOYMENT_NAME}} ${{env.ANGULAR_CONTAINER_NAME}}=${{ secrets.DOCKER_HUB_USERNAME }}/${{ env.ANGULAR_IMAGE_NAME }}:${{ github.sha }}
+          kubectl rollout status deployment/${{env.ANGULAR_DEPLOYMENT_NAME}}
+          kubectl get services -o wide
+          
+      # Runs a single command using the runners shell
+      - name: Run a one-line script
+        run: echo Hello, world!
+
+      # Runs a set of commands using the runners shell
+      - name: Run a multi-line script
+        run: |
+          echo Add other actions to build,
+          echo test, and deploy your project.
